@@ -36,13 +36,22 @@ export function PlaybackSurface({
     return new UnifiedPlaybackEngine(program.media_url);
   }, [program.media_url]);
 
-  useEffect(() => {
+useEffect(() => {
     async function initStream() {
+      // Reset the engine and force the <video> element to reload on every
+      // kernel-level retry, not just on first mount. Previously this effect
+      // only depended on [engine], so PLAY_ERROR -> PLAYBACK retries never
+      // actually re-attempted the stream -- retryCount would climb but
+      // nothing re-fetched or reloaded, leaving playback stuck forever.
+      engine.reset();
       const url = await engine.verifyAndSelectBestStream();
       setStreamUrl(url);
+      if (videoRef.current) {
+        videoRef.current.load();
+      }
     }
     initStream();
-  }, [engine]);
+  }, [engine, retryCount]);
 
   // Position updater interval (every 5 seconds -> write silently into IndexedDB)
   useEffect(() => {

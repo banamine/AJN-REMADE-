@@ -5,7 +5,7 @@ export class UnifiedPlaybackEngine {
 
   constructor(primaryUrl: string, backupUrls: string[] = [
     'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_adv_example_hevc/master.m3u8',
-    'https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8'
+    'https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel.ism/.m3u8'
   ]) {
     this.urls = [primaryUrl, ...backupUrls].filter(Boolean);
   }
@@ -44,5 +44,15 @@ export class UnifiedPlaybackEngine {
     }
     // Loop back or return null
     return null;
+  }
+
+  /**
+   * Reset the engine back to the primary URL. Called at the start of every
+   * kernel-level retry (uxKernelMachine PLAY_ERROR -> PLAYBACK self-transition)
+   * so a fresh retry re-probes from the top of the URL list instead of
+   * silently reusing an already-exhausted fallback chain.
+   */
+  public reset(): void {
+    this.currentUrlIndex = 0;
   }
 }
