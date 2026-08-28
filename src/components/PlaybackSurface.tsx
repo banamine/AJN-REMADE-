@@ -1,14 +1,15 @@
 /**
  * Playback Core Surface Component
- * Mounts HTML5 video element loading media_url, updates playback position in IndexedDB every 5s,
- * and provides simulated playback crash testing for the guardrail engine (3 retries -> auto-heal to GUIDE).
+ * Mounts HTML5 video element loading proxied media_url via UnifiedPlaybackEngine,
+ * updates playback position in IndexedDB every 5s, handles fallback streams on error,
+ * and provides simulated playback crash testing for the guardrail engine.
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { ProgramSchedule, Channel } from '../types';
 import { persistenceFacade } from '../kernel/KernelPersistenceFacade';
-import { ArrowLeft, AlertTriangle, RotateCcw, Volume2, Maximize2 } from 'lucide-react';
-import { PlayIcon, PauseIcon, VolumeIcon, FullscreenIcon } from './icons/PlayerIcons';
+import { UnifiedPlaybackEngine } from '../services/UnifiedPlaybackEngine';
+import { ArrowLeft, AlertTriangle, ShieldCheck } from 'lucide-react';
 
 interface PlaybackSurfaceProps {
   program: ProgramSchedule;
@@ -26,9 +27,22 @@ export function PlaybackSurface({
   onPlayError,
 }: PlaybackSurfaceProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [streamUrl, setStreamUrl] = useState<string>('');
+  const [fallbackActive, setFallbackActive] = useState<boolean>(false);
+
+  const engine = useMemo(() => {
+    return new UnifiedPlaybackEngine(program.media_url);
+  }, [program.media_url]);
+
+  useEffect(() => {
+    async function initStream() {
+      const url = await engine.verifyAndSelectBestStream();
+      setStreamUrl(url);
+    }
+    initStream();
+  }, [engine]);
 
   // Position updater interval (every 5 seconds -> write silently into IndexedDB)
   useEffect(() => {
@@ -48,10 +62,22 @@ export function PlaybackSurface({
     return () => clearInterval(interval);
   }, [channel, program]);
 
-  // Handle video error event
+  // Handle video error event with automatic fallback circuit breaker
   const handleVideoError = () => {
-    const err = 'HTML5 Media Element encountered a network or codec decode error.';
-    onPlayError(err);
+    const nextUrl = engine.switchToFallback();
+    if (nextUrl) {
+      setFallbackActive(true);
+      setStreamUrl(nextUrl);
+      setToastMessage('Stream error detected. Switched to backup resilient stream...');
+      setTimeout(() => setToastMessage(null), 3000);
+      if (videoRef.current) {
+        videoRef.current.load();
+        videoRef.current.play().catch(() => {});
+      }
+    } else {
+      const err = 'HTML5 Media Element encountered a network or codec decode error on all fallback streams.';
+      onPlayError(err);
+    }
   };
 
   // Trigger simulated crash for testing guardrail
@@ -77,8 +103,9 @@ export function PlaybackSurface({
             Back to Guide
           </button>
           <div>
-            <div className="text-xs font-mono text-primary uppercase tracking-widest">
-              {channel?.name || 'AJN Broadcast'} • Retry Attempt {retryCount}/3
+            <div className="text-xs font-mono text-primary uppercase tracking-widest flex items-center gap-2">
+              <span>{channel?.name || 'AJN Broadcast'} • Retry Attempt {retryCount}/3</span>
+              {fallbackActive && <span className="bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded text-[10px]">FALLBACK ACTIVE</span>}
             </div>
             <h2 className="text-lg font-bold text-textMain truncate max-w-xl">
               {program.title}
@@ -100,25 +127,32 @@ export function PlaybackSurface({
 
       {/* Non-blocking Toast Notification */}
       {toastMessage && (
-        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 bg-red-900/80 border border-red-500 text-red-100 px-4 py-3 rounded backdrop-blur-sm shadow-2xl text-sm font-semibold animate-bounce">
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 bg-blue-900/90 border border-blue-500 text-blue-100 px-4 py-3 rounded-xl backdrop-blur-sm shadow-2xl text-sm font-semibold animate-bounce">
           {toastMessage}
         </div>
       )}
 
       {/* Video Stage with Sophisticated Dark Player Container class */}
       <div className="flex-1 flex items-center justify-center relative overflow-hidden bg-black aspect-video rounded-lg shadow-glow">
-        <video
-          ref={videoRef}
-          src={program.media_url}
-          controls
-          autoPlay
-          playsInline
-          onError={handleVideoError}
-          onTimeUpdate={(e) => setCurrentTime((e.target as HTMLVideoElement).currentTime)}
-          className="w-full h-full object-contain"
-        />
+        {streamUrl ? (
+          <video
+            ref={videoRef}
+            src={streamUrl}
+            controls
+            autoPlay
+            playsInline
+            onError={handleVideoError}
+            onTimeUpdate={(e) => setCurrentTime((e.target as HTMLVideoElement).currentTime)}
+            className="w-full h-full object-contain"
+          />
+        ) : (
+          <div className="flex flex-col items-center justify-center text-zinc-400 gap-2">
+            <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+            <p className="text-sm font-mono">Resolving proxy stream & circuit breaker...</p>
+          </div>
+        )}
 
-        {!program.media_url && (
+        {!streamUrl && !program.media_url && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-surface text-textMuted p-6">
             <AlertTriangle className="w-12 h-12 text-accent mb-2" />
             <p className="text-lg font-semibold">No valid media URL provided for this schedule item.</p>
@@ -131,7 +165,7 @@ export function PlaybackSurface({
         <div className="flex items-center gap-4">
           <span className="flex items-center gap-1.5 text-emerald-400">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            INDEXED_DB PERSISTENCE ACTIVE
+            STREAM PROXY & CIRCUIT BREAKER ACTIVE
           </span>
           <span>POSITION: {Math.floor(currentTime)}s</span>
         </div>

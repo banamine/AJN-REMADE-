@@ -13,8 +13,11 @@ const PORT = 3000;
 app.use(cors());
 app.use(express.json());
 
-// Explicit JSON content-type middleware for all /api routes
+// Explicit JSON content-type middleware for all /api routes except stream proxy
 app.use('/api', (req, res, next) => {
+  if (req.path === '/stream-proxy') {
+    return next();
+  }
   res.setHeader('Content-Type', 'application/json');
   next();
 });
@@ -28,6 +31,37 @@ app.get('/healthz', async (req: Request, res: Response) => {
     database: dbConnected ? 'connected' : 'memory-fallback',
     timestamp: new Date().toISOString()
   });
+});
+
+// Stream proxy endpoint to bypass CORS for M3U8/HLS streams
+app.get('/api/stream-proxy', async (req: Request, res: Response) => {
+  const targetUrl = req.query.url as string;
+  if (!targetUrl) {
+    return res.status(400).json({ success: false, error: 'Missing url parameter' });
+  }
+
+  try {
+    const response = await fetch(targetUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': '*/*'
+      }
+    });
+
+    if (!response.ok) {
+      return res.status(response.status).json({ success: false, error: `Upstream error: ${response.statusText}` });
+    }
+
+    const contentType = response.headers.get('content-type') || 'application/vnd.apple.mpegurl';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Access-Control-Allow-Origin', '*');
+
+    const arrayBuffer = await response.arrayBuffer();
+    return res.send(Buffer.from(arrayBuffer));
+  } catch (err) {
+    console.error('Stream proxy error:', err);
+    return res.status(502).json({ success: false, error: 'Failed to proxy stream: ' + (err as Error).message });
+  }
 });
 
 // Zod schemas for validation
