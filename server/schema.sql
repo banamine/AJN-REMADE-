@@ -91,3 +91,22 @@ VALUES
   ('BipBop HD Stream Sample', 'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_adv_example_hevc/master.m3u8', 104857600, 3600.00, 'hls', 'hevc', 4500000, 'ready', 98),
   ('Global News Bulletin 4K', 'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_adv_example_hevc/master.m3u8', 209715200, 1800.00, 'hls', 'h264', 6000000, 'ready', 95)
 ON CONFLICT DO NOTHING;
+
+-- Extend media_assets with checksum + structured metadata
+ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS checksum VARCHAR(64);
+ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS content_type VARCHAR(100);
+ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS last_checked_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb;
+
+CREATE TABLE IF NOT EXISTS media_asset_audit (
+  id BIGSERIAL PRIMARY KEY,
+  asset_id INTEGER REFERENCES media_assets(id) ON DELETE CASCADE,
+  action VARCHAR(50) NOT NULL,           -- 'created', 'updated', 'health_checked', 'soft_deleted'
+  changed_fields JSONB DEFAULT '{}'::jsonb,
+  previous_values JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_media_asset_audit_asset_id ON media_asset_audit(asset_id);
+CREATE INDEX IF NOT EXISTS idx_media_asset_audit_action ON media_asset_audit(action);
+

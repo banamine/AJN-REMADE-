@@ -93,13 +93,10 @@ export async function initDatabase(): Promise<boolean> {
     console.log('PostgreSQL connected successfully at:', res.rows[0].now);
     
     try {
-      const tableCheck = await pool.query("SELECT to_regclass('public.channels')");
-      if (!tableCheck.rows[0].to_regclass) {
-        console.log('Running initial schema migration...');
-        const schemaSql = fs.readFileSync(path.join(process.cwd(), 'server', 'schema.sql'), 'utf8');
-        await pool.query(schemaSql);
-        console.log('Schema migration applied successfully.');
-      }
+      console.log('Running schema migration (idempotent)...');
+      const schemaSql = fs.readFileSync(path.join(process.cwd(), 'server', 'schema.sql'), 'utf8');
+      await pool.query(schemaSql);
+      console.log('Schema migration applied successfully.');
     } catch (migErr) {
       console.warn('Migration auto-apply warning:', migErr);
     }

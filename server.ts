@@ -2,7 +2,9 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import cors from 'cors';
 import { z } from 'zod';
-import { pool, initDatabase, getDbStatus, getMemoryFallbackGuide } from './server/db.js';
+import { pool, initDatabase, getDbStatus, getMemoryFallbackGuide, getMemoryFallbackAssets } from './server/db.js';
+import { assetRepository } from './server/assetRepository.js';
+import { checkAssetHealth } from './server/healthCheckService.js';
 import { createServer as createViteServer } from 'vite';
 
 const app = express();
@@ -111,7 +113,7 @@ app.get('/api/v1/schedules', async (req: Request, res: Response) => {
   }
 });
 
-// Phase 6 Milestone 1: Media Asset Endpoints
+// Phase 6 Milestone 1: Media Asset Endpoints (Repository-backed)
 const createAssetSchema = z.object({
   title: z.string().min(1),
   file_path: z.string(),
@@ -120,50 +122,66 @@ const createAssetSchema = z.object({
   format: z.string().optional().default('hls'),
   codec: z.string().optional().default('h264'),
   bitrate: z.number().optional().default(4000000),
+  status: z.string().optional().default('ready'),
+  health_score: z.number().optional().default(100),
+  checksum: z.string().optional(),
+  content_type: z.string().optional(),
+  metadata: z.any().optional().default({}),
 });
 
-let inMemoryAssets = [
-  {
-    id: 1,
-    title: 'BipBop HD Stream Sample',
-    file_path: 'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_adv_example_hevc/master.m3u8',
-    file_size: 104857600,
-    duration: 3600.00,
-    format: 'hls',
-    codec: 'hevc',
-    bitrate: 4500000,
-    status: 'ready',
-    health_score: 98,
-    deleted_at: null,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
-  },
-  {
-    id: 2,
-    title: 'Global News Bulletin 4K',
-    file_path: 'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_adv_example_hevc/master.m3u8',
-    file_size: 209715200,
-    duration: 1800.00,
-    format: 'hls',
-    codec: 'h264',
-    bitrate: 6000000,
-    status: 'ready',
-    health_score: 95,
-    deleted_at: null,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
-  }
-];
+const updateAssetSchema = z.object({
+  title: z.string().min(1).optional(),
+  file_path: z.string().optional(),
+  file_size: z.number().optional(),
+  duration: z.number().optional(),
+  format: z.string().optional(),
+  codec: z.string().optional(),
+  bitrate: z.number().optional(),
+  status: z.string().optional(),
+  health_score: z.number().optional(),
+  checksum: z.string().optional(),
+  content_type: z.string().optional(),
+  metadata: z.any().optional(),
+});
+
+const batchAssetSchema = z.object({
+  assets: z.array(createAssetSchema),
+});
 
 app.get('/api/v1/assets', async (req: Request, res: Response) => {
   try {
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 50;
+
     if (!getDbStatus()) {
-      return res.json({ success: true, source: 'memory-fallback', assets: inMemoryAssets.filter(a => !a.deleted_at) });
+      return res.json({ success: true, source: 'memory-fallback', assets: getMemoryFallbackAssets().filter(a => !a.deleted_at) });
     }
-    const result = await pool.query('SELECT * FROM media_assets WHERE deleted_at IS NULL ORDER BY id DESC');
-    return res.json({ success: true, source: 'postgresql', assets: result.rows });
+    const result = await assetRepository.findAll({ page, limit });
+    return res.json({ success: true, source: 'postgresql', assets: result.assets, total: result.total, page, limit });
   } catch (err) {
-    return res.json({ success: true, source: 'memory-fallback', assets: inMemoryAssets.filter(a => !a.deleted_at) });
+    if (!getDbStatus()) {
+      return res.json({ success: true, source: 'memory-fallback', assets: getMemoryFallbackAssets().filter(a => !a.deleted_at) });
+    }
+    return res.status(500).json({ success: false, error: (err as Error).message });
+  }
+});
+
+app.get('/api/v1/assets/:id', async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ success: false, error: 'Invalid asset ID' });
+    }
+    if (!getDbStatus()) {
+      return res.status(503).json({ success: false, error: 'Database unavailable' });
+    }
+    const asset = await assetRepository.findById(id);
+    if (!asset) {
+      return res.status(404).json({ success: false, error: 'Asset not found' });
+    }
+    return res.json({ success: true, source: 'postgresql', asset });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: (err as Error).message });
   }
 });
 
@@ -173,38 +191,37 @@ app.post('/api/v1/assets', async (req: Request, res: Response) => {
     if (!parseRes.success) {
       return res.status(400).json({ success: false, error: parseRes.error.format() });
     }
-    const { title, file_path, file_size, duration, format, codec, bitrate } = parseRes.data;
-
     if (!getDbStatus()) {
-      const newAsset = {
-        id: inMemoryAssets.length + 1,
-        title,
-        file_path,
-        file_size,
-        duration,
-        format,
-        codec,
-        bitrate,
-        status: 'ready',
-        health_score: Math.floor(Math.random() * 10) + 90,
-        deleted_at: null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
-      inMemoryAssets.unshift(newAsset);
-      return res.status(201).json({ success: true, source: 'memory-fallback', asset: newAsset });
+      return res.status(503).json({ success: false, error: 'Database unavailable' });
     }
-
-    const query = `
-      INSERT INTO media_assets (title, file_path, file_size, duration, format, codec, bitrate, status, health_score)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, 'ready', $8)
-      RETURNING *;
-    `;
-    const healthScore = Math.floor(Math.random() * 10) + 90;
-    const result = await pool.query(query, [title, file_path, file_size, duration, format, codec, bitrate, healthScore]);
-    return res.status(201).json({ success: true, source: 'postgresql', asset: result.rows[0] });
+    const asset = await assetRepository.create(parseRes.data);
+    return res.status(201).json({ success: true, source: 'postgresql', asset });
   } catch (err) {
-    res.status(500).json({ success: false, error: (err as Error).message });
+    return res.status(500).json({ success: false, error: (err as Error).message });
+  }
+});
+
+app.patch('/api/v1/assets/:id', async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ success: false, error: 'Invalid asset ID' });
+    }
+    const parseRes = updateAssetSchema.safeParse(req.body);
+    if (!parseRes.success) {
+      return res.status(400).json({ success: false, error: parseRes.error.format() });
+    }
+    if (!getDbStatus()) {
+      return res.status(503).json({ success: false, error: 'Database unavailable' });
+    }
+    const asset = await assetRepository.update(id, parseRes.data);
+    return res.json({ success: true, source: 'postgresql', asset });
+  } catch (err) {
+    const msg = (err as Error).message;
+    if (msg === 'Asset not found') {
+      return res.status(404).json({ success: false, error: msg });
+    }
+    return res.status(500).json({ success: false, error: msg });
   }
 });
 
@@ -214,26 +231,17 @@ app.delete('/api/v1/assets/:id', async (req: Request, res: Response) => {
     if (isNaN(id)) {
       return res.status(400).json({ success: false, error: 'Invalid asset ID' });
     }
-
     if (!getDbStatus()) {
-      const asset = inMemoryAssets.find(a => a.id === id);
-      if (!asset) {
-        return res.status(404).json({ success: false, error: 'Asset not found' });
-      }
-      asset.deleted_at = new Date().toISOString() as any;
-      return res.json({ success: true, source: 'memory-fallback', message: 'Asset soft-deleted successfully' });
+      return res.status(503).json({ success: false, error: 'Database unavailable' });
     }
-
-    const result = await pool.query(
-      'UPDATE media_assets SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1 AND deleted_at IS NULL RETURNING *',
-      [id]
-    );
-    if (result.rowCount === 0) {
-      return res.status(404).json({ success: false, error: 'Asset not found or already deleted' });
-    }
+    await assetRepository.softDelete(id);
     return res.json({ success: true, source: 'postgresql', message: 'Asset soft-deleted successfully' });
   } catch (err) {
-    res.status(500).json({ success: false, error: (err as Error).message });
+    const msg = (err as Error).message;
+    if (msg.includes('not found')) {
+      return res.status(404).json({ success: false, error: msg });
+    }
+    return res.status(500).json({ success: false, error: msg });
   }
 });
 
@@ -243,31 +251,71 @@ app.post('/api/v1/assets/:id/health-check', async (req: Request, res: Response) 
     if (isNaN(id)) {
       return res.status(400).json({ success: false, error: 'Invalid asset ID' });
     }
-
-    const newScore = Math.floor(Math.random() * 15) + 85;
-
     if (!getDbStatus()) {
-      const asset = inMemoryAssets.find(a => a.id === id);
-      if (!asset) {
-        return res.status(404).json({ success: false, error: 'Asset not found' });
-      }
-      asset.health_score = newScore;
-      asset.updated_at = new Date().toISOString();
-      return res.json({ success: true, source: 'memory-fallback', asset });
+      return res.status(503).json({ success: false, error: 'Database unavailable' });
     }
-
-    const result = await pool.query(
-      'UPDATE media_assets SET health_score = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND deleted_at IS NULL RETURNING *',
-      [newScore, id]
-    );
-    if (result.rowCount === 0) {
+    const asset = await assetRepository.findById(id);
+    if (!asset) {
       return res.status(404).json({ success: false, error: 'Asset not found' });
     }
-    return res.json({ success: true, source: 'postgresql', asset: result.rows[0] });
+
+    const healthResult = await checkAssetHealth(asset.file_path);
+    const updatedAsset = await assetRepository.update(id, {
+      health_score: healthResult.score,
+      last_checked_at: healthResult.checkedAt,
+      content_type: healthResult.contentType,
+      status: healthResult.status,
+      checksum: healthResult.checksum
+    });
+
+    return res.json({ success: true, source: 'postgresql', asset: updatedAsset, health_details: healthResult });
   } catch (err) {
-    res.status(500).json({ success: false, error: (err as Error).message });
+    return res.status(500).json({ success: false, error: (err as Error).message });
   }
 });
+
+app.get('/api/v1/assets/:id/audit', async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ success: false, error: 'Invalid asset ID' });
+    }
+    if (!getDbStatus()) {
+      return res.status(503).json({ success: false, error: 'Database unavailable' });
+    }
+    const auditTrail = await assetRepository.getAuditTrail(id);
+    return res.json({ success: true, source: 'postgresql', audit: auditTrail });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: (err as Error).message });
+  }
+});
+
+app.post('/api/v1/assets/batch', async (req: Request, res: Response) => {
+  try {
+    const parseRes = batchAssetSchema.safeParse(req.body);
+    if (!parseRes.success) {
+      return res.status(400).json({ success: false, error: parseRes.error.format() });
+    }
+    if (!getDbStatus()) {
+      return res.status(503).json({ success: false, error: 'Database unavailable' });
+    }
+
+    const results = [];
+    for (const item of parseRes.data.assets) {
+      try {
+        const created = await assetRepository.create(item);
+        results.push({ success: true, asset: created });
+      } catch (itemErr) {
+        results.push({ success: false, error: (itemErr as Error).message, input: item });
+      }
+    }
+
+    return res.json({ success: true, source: 'postgresql', results });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: (err as Error).message });
+  }
+});
+
 
 async function startServer() {
   await initDatabase();
