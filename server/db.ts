@@ -1,22 +1,43 @@
 import pkg from 'pg';
 import fs from 'fs';
 import path from 'path';
+import { PGlite } from '@electric-sql/pglite';
 
 const { Pool } = pkg;
 
-const connectionString = process.env.DATABASE_URL || 'postgresql://ajn_user:ajn_password@localhost:5432/ajn_liberty_play';
-
-export const pool = new Pool({
-  connectionString,
-  connectionTimeoutMillis: 1500,
-});
-
+let activePool: any;
+let pgliteInstance: PGlite | null = null;
 let isConnected = false;
 
-pool.on('error', (err) => {
-  console.error('Unexpected error on idle PostgreSQL client', err);
-  isConnected = false;
-});
+if (process.env.DATABASE_URL) {
+  const connectionString = process.env.DATABASE_URL;
+  activePool = new Pool({
+    connectionString,
+    connectionTimeoutMillis: 1500,
+  });
+  activePool.on('error', (err: any) => {
+    console.error('Unexpected error on idle PostgreSQL client', err);
+    isConnected = false;
+  });
+} else {
+  pgliteInstance = new PGlite('./pgdata');
+  activePool = {
+    query: async (text: string, params?: any[]) => {
+      return await pgliteInstance!.query(text, params);
+    },
+    exec: async (sql: string) => {
+      return await pgliteInstance!.exec(sql);
+    },
+    connect: async () => {
+      return {
+        query: async (text: string, params?: any[]) => await pgliteInstance!.query(text, params),
+        release: () => {}
+      };
+    }
+  };
+}
+
+export const pool = activePool;
 
 // Memory fallback store for resilient zero-config booting
 const memoryFallbackChannels = [
@@ -88,14 +109,18 @@ export async function initDatabase(): Promise<boolean> {
   try {
     const client = await pool.connect();
     const res = await client.query('SELECT NOW()');
-    client.release();
+    if (client.release) client.release();
     isConnected = true;
-    console.log('PostgreSQL connected successfully at:', res.rows[0].now);
+    console.log('Database connected successfully at:', res.rows[0].now);
     
     try {
       console.log('Running schema migration (idempotent)...');
       const schemaSql = fs.readFileSync(path.join(process.cwd(), 'server', 'schema.sql'), 'utf8');
-      await pool.query(schemaSql);
+      if (pgliteInstance) {
+        await pgliteInstance.exec(schemaSql);
+      } else {
+        await pool.query(schemaSql);
+      }
       console.log('Schema migration applied successfully.');
     } catch (migErr) {
       console.warn('Migration auto-apply warning:', migErr);
@@ -104,7 +129,7 @@ export async function initDatabase(): Promise<boolean> {
     return true;
   } catch (err) {
     isConnected = false;
-    console.warn('PostgreSQL connection offline. Using resilient in-memory fallback store:', (err as Error).message);
+    console.warn('Database connection offline. Using resilient in-memory fallback store:', (err as Error).message);
     return false;
   }
 }
