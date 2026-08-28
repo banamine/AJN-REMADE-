@@ -1,0 +1,6 @@
+{
+  "name": "AJN Liberty Play",
+  "description": "Provider-independent Broadcast OS featuring UX Runtime Kernel, Tiered Persistence Facade, PostgreSQL backend, and Broadcast TV Guide.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

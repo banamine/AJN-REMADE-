@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ajn_postgres
+    environment:
+      POSTGRES_DB: ajn_liberty_play
+      POSTGRES_USER: ajn_user
+      POSTGRES_PASSWORD: ajn_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./server/schema.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ajn_user -d ajn_liberty_play"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    container_name: ajn_api
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+      - DATABASE_URL=postgresql://ajn_user:ajn_password@postgres:5432/ajn_liberty_play
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

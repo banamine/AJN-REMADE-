@@ -1,0 +1,139 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    background-color: #0B0F19;
+    color: #F3F4F6;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    margin: 0;
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+}
+
+:root {
+  --background: #0B0F19;
+  --surface: #1A1F2C;
+  --surfaceHover: #252B3B;
+  --primary: #3B82F6;
+  --accent: #F59E0B;
+  --textMain: #F3F4F6;
+  --textMuted: #9CA3AF;
+  --borderSubtle: #374151;
+}
+
+.app-chrome {
+  height: 64px;
+  border-bottom: 1px solid var(--borderSubtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 32px;
+  background: linear-gradient(to bottom, #111827, var(--background));
+}
+
+.kernel-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+}
+
+.status-pill {
+  padding: 4px 10px;
+  border-radius: 100px;
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.main-viewport {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  background: var(--background);
+  overflow: hidden;
+}
+
+.sidebar {
+  border-right: 1px solid var(--borderSubtle);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  background: var(--surface);
+  overflow-y: auto;
+}
+
+.content-area {
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  overflow-y: auto;
+  background: var(--background);
+}
+
+.guide-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--borderSubtle);
+  border: 1px solid var(--borderSubtle);
+  border-radius: 0.75rem;
+  overflow: hidden;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+}
+
+.guide-row {
+  display: grid;
+  grid-template-columns: 140px 1fr 1fr;
+  background: var(--surface);
+  min-height: 80px;
+  transition: background-color 0.2s ease;
+}
+
+.guide-row:hover {
+  background-color: var(--surfaceHover);
+}
+
+.guide-cell {
+  padding: 16px;
+  border-right: 1px solid var(--borderSubtle);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.active-program {
+  border-left: 4px solid var(--accent);
+  background: var(--surfaceHover);
+  font-weight: 500;
+  position: relative;
+}
+
+.persistence-badge {
+  font-family: monospace;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #374151;
+  color: var(--textMuted);
+}
+
+.footer-bar {
+  height: 48px;
+  border-top: 1px solid var(--borderSubtle);
+  display: flex;
+  align-items: center;
+  padding: 0 32px;
+  justify-content: space-between;
+  background: var(--surface);
+  font-size: 11px;
+  color: var(--textMuted);
+}
