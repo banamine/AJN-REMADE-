@@ -119,3 +119,40 @@ export function getDbStatus() {
 export function getMemoryFallbackGuide() {
   return memoryFallbackChannels;
 }
+
+export const memoryFallbackAssets = [
+  {
+    id: 1,
+    title: 'BipBop HD Stream Sample',
+    file_path: 'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_adv_example_hevc/master.m3u8',
+    file_size: 104857600,
+    duration: 3600.00,
+    format: 'hls',
+    codec: 'hevc',
+    bitrate: 4500000,
+    status: 'ready',
+    health_score: 98,
+    deleted_at: null,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  },
+  {
+    id: 2,
+    title: 'Global News Bulletin 4K',
+    file_path: 'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_adv_example_hevc/master.m3u8',
+    file_size: 209715200,
+    duration: 1800.00,
+    format: 'hls',
+    codec: 'h264',
+    bitrate: 6000000,
+    status: 'ready',
+    health_score: 95,
+    deleted_at: null,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  }
+];
+
+export function getMemoryFallbackAssets() {
+  return memoryFallbackAssets;
+}

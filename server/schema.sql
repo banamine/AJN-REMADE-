@@ -27,6 +27,27 @@ CREATE TABLE IF NOT EXISTS schedules (
   timezone VARCHAR(50) DEFAULT 'UTC'
 );
 
+-- Phase 6 Milestone 1: Media Asset Management & Ingestion Tables
+CREATE TABLE IF NOT EXISTS media_assets (
+  id SERIAL PRIMARY KEY,
+  title VARCHAR(255) NOT NULL,
+  file_path TEXT NOT NULL,
+  file_size BIGINT DEFAULT 0,
+  duration NUMERIC(10,2) DEFAULT 0.00,
+  format VARCHAR(50) DEFAULT 'mp4',
+  codec VARCHAR(50) DEFAULT 'h264',
+  bitrate INTEGER DEFAULT 0,
+  status VARCHAR(50) DEFAULT 'ready',
+  health_score INTEGER DEFAULT 100,
+  deleted_at TIMESTAMP WITH TIME ZONE DEFAULT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_media_assets_status ON media_assets(status);
+CREATE INDEX IF NOT EXISTS idx_media_assets_deleted_at ON media_assets(deleted_at);
+CREATE INDEX IF NOT EXISTS idx_media_assets_health ON media_assets(health_score);
+
 -- Seed Initial Clean Channels if empty
 INSERT INTO channels (slug, name, logo_url)
 VALUES 
@@ -64,3 +85,9 @@ INSERT INTO schedules (channel_id, title, start_time, end_time, media_url, durat
 SELECT id, 'Tech Live: Developer Deep Dive', NOW() + INTERVAL '30 minutes', NOW() + INTERVAL '90 minutes', 'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_adv_example_hevc/master.m3u8', 3600, 'UTC'
 FROM channels WHERE slug = 'tech-live'
 AND NOT EXISTS (SELECT 1 FROM schedules WHERE title LIKE '%Developer Deep Dive%');
+
+INSERT INTO media_assets (title, file_path, file_size, duration, format, codec, bitrate, status, health_score)
+VALUES 
+  ('BipBop HD Stream Sample', 'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_adv_example_hevc/master.m3u8', 104857600, 3600.00, 'hls', 'hevc', 4500000, 'ready', 98),
+  ('Global News Bulletin 4K', 'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_adv_example_hevc/master.m3u8', 209715200, 1800.00, 'hls', 'h264', 6000000, 'ready', 95)
+ON CONFLICT DO NOTHING;
