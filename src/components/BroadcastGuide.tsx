@@ -12,9 +12,10 @@ import { broadcastClock } from '../services/BroadcastClock';
 
 interface BroadcastGuideProps {
   onSelectProgram: (program: ProgramSchedule, channel: Channel) => void;
+  onSourceChange?: (source: string) => void;
 }
 
-export function BroadcastGuide({ onSelectProgram }: BroadcastGuideProps) {
+export function BroadcastGuide({ onSelectProgram, onSourceChange }: BroadcastGuideProps) {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -35,7 +36,9 @@ export function BroadcastGuide({ onSelectProgram }: BroadcastGuideProps) {
       const data = await res.json();
       if (res.ok && data.success) {
         setChannels(data.channels || []);
-        setDataSource(data.source || 'postgresql');
+        const src = data.source || 'postgresql';
+        setDataSource(src);
+        onSourceChange?.(src);
       } else {
         setError(data.error || 'Database unreachable or guide feed empty.');
         setChannels([]);
@@ -61,7 +64,7 @@ export function BroadcastGuide({ onSelectProgram }: BroadcastGuideProps) {
             AJN LIBERTY PLAY — BROADCAST GUIDE
           </h1>
           <p className="text-sm text-textMuted mt-1">
-            Authoritative PostgreSQL Feed • Data Source: <span className="font-mono text-primary">{dataSource}</span>
+            {dataSource === 'postgresql' ? 'Authoritative PostgreSQL Feed' : 'Memory Fallback Feed'} • Data Source: <span className="font-mono text-primary">{dataSource}</span>
           </p>
         </div>
         <button
@@ -137,7 +140,9 @@ export function BroadcastGuide({ onSelectProgram }: BroadcastGuideProps) {
               </div>
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
-                <span className="text-xs font-medium text-emerald-400 uppercase tracking-wider">POSTGRESQL SYNCED</span>
+                <span className="text-xs font-medium text-emerald-400 uppercase tracking-wider">
+                  {dataSource === 'postgresql' ? 'POSTGRESQL SYNCED' : 'MEMORY FALLBACK'}
+                </span>
               </div>
             </div>
 

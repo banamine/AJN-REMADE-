@@ -10,6 +10,7 @@ import { ProgramSchedule, Channel } from '../types';
 import { persistenceFacade } from '../kernel/KernelPersistenceFacade';
 import { UnifiedPlaybackEngine } from '../services/UnifiedPlaybackEngine';
 import { ArrowLeft, AlertTriangle, ShieldCheck } from 'lucide-react';
+import Hls from 'hls.js';
 
 interface PlaybackSurfaceProps {
   program: ProgramSchedule;
@@ -36,7 +37,7 @@ export function PlaybackSurface({
     return new UnifiedPlaybackEngine(program.media_url);
   }, [program.media_url]);
 
-useEffect(() => {
+  useEffect(() => {
     async function initStream() {
       // Reset the engine and force the <video> element to reload on every
       // kernel-level retry, not just on first mount. Previously this effect
@@ -46,12 +47,70 @@ useEffect(() => {
       engine.reset();
       const url = await engine.verifyAndSelectBestStream();
       setStreamUrl(url);
-      if (videoRef.current) {
-        videoRef.current.load();
-      }
     }
     initStream();
   }, [engine, retryCount]);
+
+  useEffect(() => {
+    let hls: Hls | null = null;
+    const video = videoRef.current;
+    if (!video || !streamUrl) return;
+
+    console.log('[PlaybackSurface] Initializing stream URL:', streamUrl);
+
+    if (Hls.isSupported()) {
+      hls = new Hls({
+        maxBufferLength: 30,
+        maxMaxBufferLength: 60,
+      });
+      hls.loadSource(streamUrl);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        console.log('[PlaybackSurface] HLS manifest parsed successfully. Triggering play().');
+        video.play().catch((err) => {
+          console.warn('[PlaybackSurface] video.play() failed on MANIFEST_PARSED:', err);
+        });
+      });
+      hls.on(Hls.Events.ERROR, (event, data) => {
+        console.error('[PlaybackSurface] HLS error event:', data.type, data.details, data.fatal);
+        if (data.fatal) {
+          switch (data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              console.warn('[PlaybackSurface] Fatal HLS network error, attempting startLoad()...');
+              hls?.startLoad();
+              break;
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              console.warn('[PlaybackSurface] Fatal HLS media error, attempting recoverMediaError()...');
+              hls?.recoverMediaError();
+              break;
+            default:
+              console.error('[PlaybackSurface] Unrecoverable HLS fatal error, triggering fallback.');
+              handleVideoError();
+              break;
+          }
+        }
+      });
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      console.log('[PlaybackSurface] Using native HLS playback support.');
+      video.src = streamUrl;
+      video.play().catch((err) => {
+        console.warn('[PlaybackSurface] Native HLS video.play() failed:', err);
+      });
+    } else {
+      console.log('[PlaybackSurface] Using direct video source playback.');
+      video.src = streamUrl;
+      video.play().catch((err) => {
+        console.warn('[PlaybackSurface] Direct video.play() failed:', err);
+      });
+    }
+
+    return () => {
+      if (hls) {
+        console.log('[PlaybackSurface] Destroying HLS instance on cleanup.');
+        hls.destroy();
+      }
+    };
+  }, [streamUrl]);
 
   // Position updater interval (every 5 seconds -> write silently into IndexedDB)
   useEffect(() => {
@@ -146,7 +205,7 @@ useEffect(() => {
         {streamUrl ? (
           <video
             ref={videoRef}
-            src={streamUrl}
+            src={!Hls.isSupported() ? streamUrl : undefined}
             controls
             autoPlay
             playsInline

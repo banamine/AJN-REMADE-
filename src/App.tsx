@@ -21,6 +21,7 @@ export default function App() {
   const [apiStatus, setApiStatus] = useState<{ status: string; database: string } | null>(null);
   const [showDiagnostics, setShowDiagnostics] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'guide' | 'assets'>('guide');
+  const [guideSource, setGuideSource] = useState<string>('postgresql');
 
   // Boot sequence: dynamic session verification via IndexedDB
   useEffect(() => {
@@ -133,7 +134,7 @@ export default function App() {
         ) : (
           <>
             {(state.matches('HOME') || state.matches('GUIDE')) && (
-              <BroadcastGuide onSelectProgram={handleSelectProgram} />
+              <BroadcastGuide onSelectProgram={handleSelectProgram} onSourceChange={setGuideSource} />
             )}
 
             {state.matches('PLAYBACK') && (
@@ -164,7 +165,7 @@ export default function App() {
       <footer className="footer-bar">
         <div>Broadcast OS Kernel: <span className="text-zinc-300 font-mono">xstate@5.1.0</span></div>
         <div className="flex gap-4">
-          <span>PostgreSQL Authoritative Engine</span>
+          <span>{guideSource === 'postgresql' ? 'PostgreSQL Authoritative Engine' : 'Memory Fallback Engine'}</span>
           <span className="text-primary font-bold uppercase">Phase 6 M1 Asset Ingestion Active</span>
         </div>
       </footer>

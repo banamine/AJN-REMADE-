@@ -2,7 +2,7 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import cors from 'cors';
 import { z } from 'zod';
-import { pool, initDatabase, getDbStatus, getMemoryFallbackGuide, getMemoryFallbackAssets } from './server/db.js';
+import { pool, initDatabase, getDbStatus, getMemoryFallbackGuide, getMemoryFallbackAssets, addMemoryFallbackAsset, updateMemoryFallbackAsset } from './server/db.js';
 import { assetRepository } from './server/assetRepository.js';
 import { checkAssetHealth } from './server/healthCheckService.js';
 import { createServer as createViteServer } from 'vite';
@@ -53,6 +53,39 @@ app.get('/api/stream-proxy', async (req: Request, res: Response) => {
     }
 
     const contentType = response.headers.get('content-type') || 'application/vnd.apple.mpegurl';
+    const isM3u8 = targetUrl.endsWith('.m3u8') || contentType.includes('mpegurl') || contentType.includes('vnd.apple.mpegurl');
+
+    if (isM3u8) {
+      const text = await response.text();
+      let baseUrl = targetUrl;
+      try {
+        const urlObj = new URL(targetUrl);
+        baseUrl = `${urlObj.protocol}//${urlObj.host}${urlObj.pathname.substring(0, urlObj.pathname.lastIndexOf('/') + 1)}`;
+      } catch {
+        // fallback
+      }
+
+      const rewrittenLines = text.split('\n').map(line => {
+        const trimmed = line.trim();
+        if (!trimmed) return line;
+        if (trimmed.startsWith('#')) {
+          if (trimmed.includes('URI="')) {
+            return trimmed.replace(/URI="([^"]+)"/, (match, uri) => {
+              const absoluteUri = uri.startsWith('http') ? uri : new URL(uri, baseUrl).toString();
+              return `URI="/api/stream-proxy?url=${encodeURIComponent(absoluteUri)}"`;
+            });
+          }
+          return line;
+        }
+        const absoluteUri = trimmed.startsWith('http') ? trimmed : new URL(trimmed, baseUrl).toString();
+        return `/api/stream-proxy?url=${encodeURIComponent(absoluteUri)}`;
+      });
+
+      res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      return res.send(rewrittenLines.join('\n'));
+    }
+
     res.setHeader('Content-Type', contentType);
     res.setHeader('Access-Control-Allow-Origin', '*');
 
@@ -226,7 +259,8 @@ app.post('/api/v1/assets', async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: parseRes.error.format() });
     }
     if (!getDbStatus()) {
-      return res.status(503).json({ success: false, error: 'Database unavailable' });
+      const asset = addMemoryFallbackAsset(parseRes.data);
+      return res.status(201).json({ success: true, source: 'memory-fallback', asset });
     }
     const asset = await assetRepository.create(parseRes.data);
     return res.status(201).json({ success: true, source: 'postgresql', asset });
@@ -286,7 +320,22 @@ app.post('/api/v1/assets/:id/health-check', async (req: Request, res: Response) 
       return res.status(400).json({ success: false, error: 'Invalid asset ID' });
     }
     if (!getDbStatus()) {
-      return res.status(503).json({ success: false, error: 'Database unavailable' });
+      const fallbackAssets = getMemoryFallbackAssets();
+      const asset = fallbackAssets.find(a => a.id === id && !a.deleted_at);
+      if (!asset) {
+        return res.status(404).json({ success: false, error: 'Asset not found' });
+      }
+
+      const healthResult = await checkAssetHealth(asset.file_path);
+      const updatedAsset = updateMemoryFallbackAsset(id, {
+        health_score: healthResult.score,
+        last_checked_at: healthResult.checkedAt,
+        content_type: healthResult.contentType,
+        status: healthResult.status,
+        checksum: healthResult.checksum
+      });
+
+      return res.json({ success: true, source: 'memory-fallback', asset: updatedAsset, health_details: healthResult });
     }
     const asset = await assetRepository.findById(id);
     if (!asset) {

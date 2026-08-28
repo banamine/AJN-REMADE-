@@ -178,3 +178,39 @@ export const memoryFallbackAssets = [
 export function getMemoryFallbackAssets() {
   return memoryFallbackAssets;
 }
+
+export function addMemoryFallbackAsset(input: any) {
+  const maxId = memoryFallbackAssets.reduce((max, a) => (a.id > max ? a.id : max), 0);
+  const newId = maxId + 1;
+  const now = new Date().toISOString();
+  const newAsset = {
+    id: newId,
+    title: input.title,
+    file_path: input.file_path,
+    file_size: input.file_size !== undefined ? input.file_size : 0,
+    duration: input.duration !== undefined ? input.duration : 0,
+    format: input.format || 'hls',
+    codec: input.codec || 'h264',
+    bitrate: input.bitrate !== undefined ? input.bitrate : 4000000,
+    status: input.status || 'ready',
+    health_score: input.health_score !== undefined ? input.health_score : 100,
+    checksum: input.checksum || null,
+    content_type: input.content_type || null,
+    metadata: input.metadata || {},
+    deleted_at: null,
+    created_at: now,
+    updated_at: now
+  };
+  memoryFallbackAssets.push(newAsset);
+  return newAsset;
+}
+
+export function updateMemoryFallbackAsset(id: number, updates: any) {
+  const asset = memoryFallbackAssets.find(a => a.id === id && !a.deleted_at);
+  if (!asset) {
+    throw new Error('Asset not found');
+  }
+  Object.assign(asset, updates, { updated_at: new Date().toISOString() });
+  return asset;
+}
+
