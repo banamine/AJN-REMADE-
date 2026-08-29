@@ -53,3 +53,38 @@ export interface UserPreferences {
   defaultStartupView: 'GUIDE' | 'HOME';
   lastSafeRoute: 'GUIDE' | 'HOME';
 }
+
+export interface ArchiveMediaRecord {
+  id: string;
+  sourceUrl: string;
+  filename: string;
+  date: string; // YYYY-MM-DD
+  dayOfWeek: string; // e.g. "Friday"
+  program: string; // e.g. "War Room"
+  segment?: string; // e.g. "Hour 3"
+  title: string;
+  extension: string; // e.g. "m4v"
+  mediaType: 'video' | 'audio';
+  duration?: number; // seconds
+  status: 'discovered' | 'valid' | 'loading' | 'ready' | 'playing' | 'paused' | 'failed' | 'invalid';
+  discoveredAt: string;
+  thumbnailUrl?: string;
+  integrityError?: string;
+}
+
+export interface ImportResultSummary {
+  totalDiscovered: number;
+  validCount: number;
+  duplicateCount: number;
+  invalidDateCount: number;
+  records: ArchiveMediaRecord[];
+}
+
+export interface ResumeRecord {
+  mediaId: string;
+  position: number;
+  updatedAt: number;
+  programTitle: string;
+  dateStr: string;
+}
+

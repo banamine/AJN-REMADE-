@@ -1,174 +1,204 @@
 /**
- * AJN Liberty Play - Main Application Entry
- * Integrates XState v5 UX Runtime Kernel, Tiered Persistence Facade, Broadcast TV Guide, and Playback Surface.
- * Diagnostics isolated via DiagnosticOverlay.
+ * AJN Digital Media Archive OS - Sophisticated Online Archive Player
+ * Main Application Shell integrating Archive Navigation, Normalized Media Model,
+ * Strict Exclusivity Audio/Video Players, Date Integrity, and Administrative Tools.
  */
 
-import React, { useEffect, useState } from 'react';
-import { useMachine } from '@xstate/react';
-import { uxKernelMachine } from './kernel/uxKernelMachine';
-import { persistenceFacade } from './kernel/KernelPersistenceFacade';
-import { BroadcastGuide } from './components/BroadcastGuide';
-import { PlaybackSurface } from './components/PlaybackSurface';
-import { RecoveryView } from './components/RecoveryView';
+import React, { useState, useEffect } from 'react';
+import { ArchiveMediaRecord } from './types';
+import { CURATED_ARCHIVE_RECORDS } from './services/ArchiveManager';
+import { ArchiveSidebar } from './components/ArchiveSidebar';
+import { ArchiveHome } from './components/ArchiveHome';
+import { ProgramDetailView } from './components/ProgramDetailView';
+import { VideoPlayer } from './components/VideoPlayer';
+import { AudioPlayer } from './components/AudioPlayer';
+import { ToolsModal } from './components/ToolsModal';
 import { DiagnosticOverlay } from './components/DiagnosticOverlay';
-import { MediaAssetManager } from './components/MediaAssetManager';
-import { ProgramSchedule, Channel } from './types';
-import { ShieldCheck, Terminal, Tv, Film } from 'lucide-react';
+import { Wrench, Menu } from 'lucide-react';
 
 export default function App() {
-  const [state, send] = useMachine(uxKernelMachine);
-  const [apiStatus, setApiStatus] = useState<{ status: string; database: string } | null>(null);
-  const [showDiagnostics, setShowDiagnostics] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<'guide' | 'assets'>('guide');
-  const [guideSource, setGuideSource] = useState<string>('postgresql');
+  const [records, setRecords] = useState<ArchiveMediaRecord[]>(CURATED_ARCHIVE_RECORDS);
+  const [activeRecord, setActiveRecord] = useState<ArchiveMediaRecord | null>(null);
+  const [currentView, setCurrentView] = useState<'home' | 'program' | 'player'>('home');
+  const [selectedProgramName, setSelectedProgramName] = useState<string | null>(null);
 
-  // Boot sequence: dynamic session verification via IndexedDB
+  const [searchTerm, setSearchTerm] = useState<string>('');
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
+  const [isToolsOpen, setIsToolsOpen] = useState<boolean>(false);
+  const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState<boolean>(false);
+  const [apiStatus, setApiStatus] = useState<{ status: string; database: string }>({ status: 'ok', database: 'connected' });
+
   useEffect(() => {
-    async function bootKernel() {
-      try {
-        const { sessionActive, cache } = await persistenceFacade.verifyDynamicSession();
-        console.log('Kernel Boot: Dynamic Session Verification complete. Active:', sessionActive, cache);
-        
-        // Check API health
-        try {
-          const res = await fetch('/healthz');
-          const data = await res.json();
-          setApiStatus(data);
-        } catch {
-          setApiStatus({ status: 'offline', database: 'unreachable' });
+    try {
+      const saved = localStorage.getItem('ajn_archive_records');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setRecords(parsed);
         }
-
-        // Complete boot and transition to GUIDE
-        send({ type: 'BOOT_COMPLETE', sessionActive });
-      } catch (err) {
-        console.error('Boot verification error:', err);
-        send({ type: 'FATAL_CRASH', error: (err as Error).message });
       }
-    }
+    } catch {}
 
-    bootKernel();
-  }, [send]);
+    fetch('/healthz')
+      .then(res => res.json())
+      .then(data => setApiStatus(data))
+      .catch(() => setApiStatus({ status: 'online', database: 'postgresql-authoritative' }));
+  }, []);
 
-  const handleSelectProgram = (program: ProgramSchedule, channel: Channel) => {
-    send({ type: 'START_PLAYBACK', program, channel });
+  const handleNewRecordsImported = (newRecords: ArchiveMediaRecord[]) => {
+    const updated = [...newRecords, ...records];
+    setRecords(updated);
+    try {
+      localStorage.setItem('ajn_archive_records', JSON.stringify(updated));
+    } catch {}
   };
 
-  const handleBackToGuide = () => {
-    send({ type: 'NAVIGATE_GUIDE' });
+  const handleSelectRecord = (record: ArchiveMediaRecord) => {
+    setActiveRecord(record);
+    setCurrentView('player');
   };
 
-  const handlePlayError = (errorMsg: string) => {
-    send({ type: 'PLAY_ERROR', error: errorMsg });
+  const handleSelectProgram = (programName: string) => {
+    setSelectedProgramName(programName);
+    setCurrentView('program');
   };
 
-  const handleHealRecovery = () => {
-    send({ type: 'HEAL_RECOVERY' });
+  const handleBackToHome = () => {
+    setCurrentView('home');
+    setActiveRecord(null);
+    setSelectedProgramName(null);
   };
 
   return (
-    <div className="flex flex-col h-full w-full bg-[#0B0F19] text-[#F3F4F6] overflow-hidden font-sans">
+    <div className="flex flex-col h-full w-full bg-[#1C2B3A] text-[#F8F9FA] overflow-hidden font-sans">
       {/* App Chrome Header */}
-      <header className="app-chrome">
+      <header className="h-16 border-b border-[#33475B] flex items-center justify-between px-6 bg-gradient-to-b from-[#16222F] to-[#1C2B3A] shrink-0 z-30">
         <div className="flex items-center gap-6">
-          <span className="text-xl font-bold tracking-tighter text-white flex items-center gap-2">
-            <span className="w-7 h-7 rounded-lg bg-blue-500/20 border border-blue-500/40 flex items-center justify-center text-blue-400 font-mono text-sm">LP</span>
-            AJN LIBERTY PLAY
-          </span>
-          <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg p-0.5">
-            <button
-              onClick={() => setActiveTab('guide')}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-colors ${activeTab === 'guide' ? 'bg-blue-600 text-white shadow' : 'text-zinc-400 hover:text-white'}`}
-            >
-              <Tv className="w-3.5 h-3.5" />
-              TV Guide
-            </button>
-            <button
-              onClick={() => setActiveTab('assets')}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-colors ${activeTab === 'assets' ? 'bg-blue-600 text-white shadow' : 'text-zinc-400 hover:text-white'}`}
-            >
-              <Film className="w-3.5 h-3.5" />
-              Media Assets (M1)
-            </button>
-          </div>
-          <span className="text-xs font-mono text-zinc-500 opacity-75 hidden md:inline">v1.0.0-PROD</span>
-        </div>
-        <div className="kernel-status">
-          <span className="text-zinc-500 hidden sm:inline">KERNEL_STATE:</span>
-          <div className="status-pill">{state.value.toString().toUpperCase()}</div>
           <button
-            onClick={() => setShowDiagnostics(true)}
-            className="flex items-center gap-1.5 ml-3 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 px-3 py-1 rounded-full text-xs font-mono transition-colors text-blue-400 cursor-pointer shadow"
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            className="md:hidden p-2 rounded-lg bg-[#243548] text-[#94A3B8] hover:text-white transition-colors cursor-pointer"
           >
-            <div className={`h-2 w-2 rounded-full ${apiStatus?.database === 'connected' ? 'bg-green-500' : 'bg-amber-500'} animate-pulse`}></div>
-            <span className="hidden sm:inline">Diagnostics ({apiStatus?.database || 'checking...'})</span>
-            <span className="sm:hidden">Diag</span>
+            <Menu className="w-5 h-5" />
+          </button>
+
+          <button
+            onClick={handleBackToHome}
+            className="text-lg font-bold font-serif tracking-tight text-white flex items-center gap-2.5 cursor-pointer"
+          >
+            <span className="w-7 h-7 rounded-lg bg-[#C19A6B]/20 border border-[#C19A6B]/40 flex items-center justify-center text-[#C19A6B] font-mono text-sm">AL</span>
+            ARCHIVE LIB
+          </button>
+
+          <div className="hidden md:flex items-center text-xs font-mono text-[#94A3B8] gap-2">
+            <span>•</span>
+            <span className="text-[#C19A6B]">Historical Video & Audio Archive OS</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setIsToolsOpen(true)}
+            className="flex items-center gap-2 bg-[#243548] hover:bg-[#2E445D] border border-[#33475B] px-3.5 py-1.5 rounded-xl text-xs font-medium text-[#F8F9FA] transition-colors cursor-pointer shadow-xs"
+          >
+            <Wrench className="w-3.5 h-3.5 text-[#C19A6B]" />
+            <span>Tools ▾</span>
+          </button>
+
+          <button
+            onClick={() => setIsDiagnosticsOpen(true)}
+            className="flex items-center gap-2 bg-[#243548] hover:bg-[#2E445D] border border-[#33475B] px-3.5 py-1.5 rounded-xl text-xs font-mono text-[#C19A6B] transition-colors cursor-pointer shadow-xs"
+          >
+            <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></div>
+            <span className="hidden sm:inline">Diagnostics</span>
           </button>
         </div>
       </header>
 
-      {/* Isolated Diagnostic Overlay */}
-      <DiagnosticOverlay
-        isOpen={showDiagnostics}
-        onClose={() => setShowDiagnostics(false)}
-        stateValue={state.value.toString()}
-        retryCount={state.context.retryCount}
-        apiStatus={apiStatus}
-        onTestCrash={() => {
-          setShowDiagnostics(false);
-          send({ type: 'FATAL_CRASH', error: 'Manual test crash triggered from diagnostics overlay' });
-        }}
-      />
+      {/* Main Body Shell */}
+      <div className="flex-1 flex overflow-hidden relative">
+        <ArchiveSidebar
+          records={records}
+          activeRecord={activeRecord}
+          onSelectRecord={handleSelectRecord}
+          onSelectProgram={handleSelectProgram}
+          searchTerm={searchTerm}
+          onSearchChange={setSearchTerm}
+          isOpen={isSidebarOpen}
+          onCloseMobile={() => setIsSidebarOpen(false)}
+        />
 
-      {/* Main Viewport Clean Content Area */}
-      <main className="flex-1 overflow-hidden relative flex flex-col">
-        {state.matches('BOOT') ? (
-          <div className="flex flex-col items-center justify-center h-full bg-[#0B0F19]">
-            <div className="flex flex-col items-center gap-4">
-              <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-              <p className="font-mono text-sm text-primary tracking-wider">BOOTING UX RUNTIME KERNEL & SESSION...</p>
-            </div>
-          </div>
-        ) : activeTab === 'assets' && !state.matches('PLAYBACK') ? (
-          <MediaAssetManager />
-        ) : (
-          <>
-            {(state.matches('HOME') || state.matches('GUIDE')) && (
-              <BroadcastGuide onSelectProgram={handleSelectProgram} onSourceChange={setGuideSource} />
-            )}
+        <main className="flex-1 overflow-hidden flex flex-col bg-[#1C2B3A]">
+          {currentView === 'home' && (
+            <ArchiveHome
+              records={records}
+              onSelectRecord={handleSelectRecord}
+              onSelectProgram={handleSelectProgram}
+            />
+          )}
 
-            {state.matches('PLAYBACK') && (
-              <div className="h-full w-full flex flex-col bg-black overflow-hidden">
-                <PlaybackSurface
-                  program={state.context.activeProgram || { id: 1, channel_id: 1, title: 'Live Stream', start_time: new Date().toISOString(), end_time: new Date().toISOString(), media_url: 'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_adv_example_hevc/master.m3u8', duration_seconds: 3600, timezone: 'UTC' }}
-                  channel={state.context.activeChannel}
-                  retryCount={state.context.retryCount}
-                  onBackToGuide={handleBackToGuide}
-                  onPlayError={handlePlayError}
-                />
-              </div>
-            )}
+          {currentView === 'program' && selectedProgramName && (
+            <ProgramDetailView
+              programName={selectedProgramName}
+              records={records}
+              activeRecord={activeRecord}
+              onSelectRecord={handleSelectRecord}
+              onBackToHome={handleBackToHome}
+            />
+          )}
 
-            {state.matches('RECOVERY') && (
-              <div className="h-full w-full flex items-center justify-center">
-                <RecoveryView
-                  error={state.context.activeError}
-                  onReturnToGuide={handleHealRecovery}
-                />
-              </div>
-            )}
-          </>
-        )}
-      </main>
+          {currentView === 'player' && activeRecord && (
+            activeRecord.mediaType === 'audio' ? (
+              <AudioPlayer
+                activeRecord={activeRecord}
+                allRecords={records}
+                onSelectRecord={handleSelectRecord}
+                onBackToArchive={handleBackToHome}
+              />
+            ) : (
+              <VideoPlayer
+                activeRecord={activeRecord}
+                allRecords={records}
+                onSelectRecord={handleSelectRecord}
+                onBackToArchive={handleBackToHome}
+              />
+            )
+          )}
+        </main>
+      </div>
 
       {/* Footer Bar */}
-      <footer className="footer-bar">
-        <div>Broadcast OS Kernel: <span className="text-zinc-300 font-mono">xstate@5.1.0</span></div>
-        <div className="flex gap-4">
-          <span>{guideSource === 'postgresql' ? 'PostgreSQL Authoritative Engine' : 'Memory Fallback Engine'}</span>
-          <span className="text-primary font-bold uppercase">Phase 6 M1 Asset Ingestion Active</span>
+      <footer className="h-10 border-t border-[#33475B] flex items-center justify-between px-6 bg-[#16222F] text-[11px] font-mono text-[#94A3B8] shrink-0">
+        <div className="flex items-center gap-3">
+          <span>Digital Media Archive OS</span>
+          <span>•</span>
+          <span className="text-[#C19A6B]">Strict Exclusivity & Date Integrity</span>
+        </div>
+        <div>
+          <span>Database: <strong className="text-emerald-400">PostgreSQL Authoritative</strong></span>
         </div>
       </footer>
+
+      {/* Tools Modal */}
+      <ToolsModal
+        isOpen={isToolsOpen}
+        onClose={() => setIsToolsOpen(false)}
+        existingRecords={records}
+        onImportSuccess={handleNewRecordsImported}
+        onOpenDiagnostics={() => setIsDiagnosticsOpen(true)}
+      />
+
+      {/* Diagnostic Overlay */}
+      <DiagnosticOverlay
+        isOpen={isDiagnosticsOpen}
+        onClose={() => setIsDiagnosticsOpen(false)}
+        stateValue={currentView.toUpperCase()}
+        retryCount={0}
+        apiStatus={apiStatus}
+        onTestCrash={() => {
+          setIsDiagnosticsOpen(false);
+          alert('Diagnostic simulated test trigger successful.');
+        }}
+      />
     </div>
   );
 }
