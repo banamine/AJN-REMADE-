@@ -88,8 +88,11 @@ AND NOT EXISTS (SELECT 1 FROM schedules WHERE title LIKE '%Developer Deep Dive%'
 
 INSERT INTO media_assets (title, file_path, file_size, duration, format, codec, bitrate, status, health_score)
 VALUES 
-  ('BipBop HD Stream Sample', 'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_adv_example_hevc/master.m3u8', 104857600, 3600.00, 'hls', 'hevc', 4500000, 'ready', 98),
-  ('Global News Bulletin 4K', 'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_adv_example_hevc/master.m3u8', 209715200, 1800.00, 'hls', 'h264', 6000000, 'ready', 95)
+  ('NASA Space Archive — Hour 1 (August 28, 2026)', 'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_adv_example_hevc/master.m3u8', 104857600, 3600.00, 'hls', 'hevc', 4500000, 'ready', 99),
+  ('NASA Space Archive — Hour 2 (August 28, 2026)', 'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_adv_example_hevc/master.m3u8', 104857600, 3600.00, 'hls', 'hevc', 4500000, 'ready', 98),
+  ('Science Lecture Series — Session 1 (August 28, 2026)', 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3', 45000000, 3720.00, 'mp3', 'mp3', 128000, 'ready', 99),
+  ('Science Lecture Series — Session 2 (August 28, 2026)', 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3', 48000000, 4100.00, 'mp3', 'mp3', 128000, 'ready', 97),
+  ('History Documentary — Part 1 (August 27, 2026)', 'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_adv_example_hevc/master.m3u8', 209715200, 3600.00, 'hls', 'h264', 6000000, 'ready', 95)
 ON CONFLICT DO NOTHING;
 
 -- Extend media_assets with checksum + structured metadata

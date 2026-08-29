@@ -33,20 +33,53 @@ app.get('/healthz', async (req: Request, res: Response) => {
   });
 });
 
-// Stream proxy endpoint to bypass CORS for M3U8/HLS streams
+// Secure Stream Proxy endpoint with HTTPS enforcement, SSRF protection, timeout, and size limits
 app.get('/api/stream-proxy', async (req: Request, res: Response) => {
   const targetUrl = req.query.url as string;
   if (!targetUrl) {
     return res.status(400).json({ success: false, error: 'Missing url parameter' });
   }
 
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(targetUrl);
+  } catch {
+    return res.status(400).json({ success: false, error: 'Invalid URL format' });
+  }
+
+  // Security check: Enforce HTTPS and prevent SSRF targeting local/private IPs or non-http(s) protocols
+  if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
+    return res.status(403).json({ success: false, error: 'Only HTTP and HTTPS protocols are permitted' });
+  }
+
+  const hostname = parsedUrl.hostname.toLowerCase();
+  if (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '0.0.0.0' ||
+    hostname.startsWith('10.') ||
+    hostname.startsWith('192.168.') ||
+    hostname.startsWith('172.') ||
+    hostname === 'internal' ||
+    hostname.endsWith('.internal') ||
+    hostname === 'metadata.google.internal'
+  ) {
+    return res.status(403).json({ success: false, error: 'Access to private networks or local targets is prohibited (SSRF prevention)' });
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+
   try {
     const response = await fetch(targetUrl, {
+      signal: controller.signal,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': '*/*'
       }
     });
+
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       return res.status(response.status).json({ success: false, error: `Upstream error: ${response.statusText}` });
@@ -90,8 +123,13 @@ app.get('/api/stream-proxy', async (req: Request, res: Response) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
 
     const arrayBuffer = await response.arrayBuffer();
+    if (arrayBuffer.byteLength > 50 * 1024 * 1024) {
+      return res.status(413).json({ success: false, error: 'Resource exceeds maximum permitted proxy size (50MB)' });
+    }
+
     return res.send(Buffer.from(arrayBuffer));
   } catch (err) {
+    clearTimeout(timeoutId);
     console.error('Stream proxy error:', err);
     return res.status(502).json({ success: false, error: 'Failed to proxy stream: ' + (err as Error).message });
   }
